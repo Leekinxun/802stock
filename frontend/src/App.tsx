@@ -967,20 +967,10 @@ function App() {
     })
   }
 
-  function handleSaveCustomWencaiPreset() {
-    const name = wencaiPresetDraft.name.trim()
-    if (!name) {
-      setWatchRealtimeMessage('请先填写内置语句名称后再保存。')
-      return
-    }
-
-    const presetId = selectedPresetId.startsWith('custom-')
-      ? selectedPresetId
-      : `custom-${Date.now()}`
-
-    const nextPreset: WencaiPreset = {
+  function buildCustomWencaiPreset(presetId: string): WencaiPreset {
+    return {
       id: presetId,
-      name,
+      name: wencaiPresetDraft.name.trim(),
       description: wencaiPresetDraft.description.trim() || '自定义内置语句',
       queries: resizeWencaiQueries(wencaiForm.queries, wencaiForm.queries.length),
       sortKey: wencaiForm.sortKey,
@@ -989,23 +979,57 @@ function App() {
       limit: wencaiForm.limit,
       intervalSeconds: wencaiForm.intervalSeconds,
     }
+  }
+
+  function highlightSavedPreset(presetId: string) {
+    setSelectedPresetId(presetId)
+    setSavedPresetHighlight({
+      id: presetId,
+      token: Date.now(),
+    })
+  }
+
+  function handleCreateCustomWencaiPreset() {
+    const name = wencaiPresetDraft.name.trim()
+    if (!name) {
+      setWatchRealtimeMessage('请先填写内置语句名称后再保存。')
+      return
+    }
+
+    const presetId = `custom-${Date.now()}`
+    const nextPreset = buildCustomWencaiPreset(presetId)
+
+    setCustomWencaiPresets((prev) => [...prev, nextPreset])
+    highlightSavedPreset(presetId)
+    setWatchRealtimeMessage(`已新增自定义内置语句：${name}`)
+  }
+
+  function handleUpdateCustomWencaiPreset() {
+    const name = wencaiPresetDraft.name.trim()
+    if (!name) {
+      setWatchRealtimeMessage('请先填写内置语句名称后再更新。')
+      return
+    }
+
+    if (!selectedPresetId.startsWith('custom-')) {
+      setWatchRealtimeMessage('请先选中一个自定义语句后再更新。')
+      return
+    }
+
+    const nextPreset = buildCustomWencaiPreset(selectedPresetId)
 
     setCustomWencaiPresets((prev) => {
-      const existingIndex = prev.findIndex((item) => item.id === presetId)
+      const existingIndex = prev.findIndex((item) => item.id === selectedPresetId)
       if (existingIndex === -1) {
-        return [...prev, nextPreset]
+        return prev
       }
 
       const next = [...prev]
       next[existingIndex] = nextPreset
       return next
     })
-    setSelectedPresetId(presetId)
-    setSavedPresetHighlight({
-      id: presetId,
-      token: Date.now(),
-    })
-    setWatchRealtimeMessage(`已保存自定义内置语句：${name}`)
+    highlightSavedPreset(selectedPresetId)
+    setWatchRealtimeMessage(`已更新自定义内置语句：${name}`)
   }
 
   function handleDeleteCustomWencaiPreset(presetId: string) {
@@ -1563,10 +1587,15 @@ function App() {
                     />
                   </label>
                   <div className="wencai-custom-preset-actions">
-                    <button type="button" onClick={handleSaveCustomWencaiPreset}>
-                      {selectedPresetId.startsWith('custom-') ? '更新当前自定义语句' : '保存当前输入为内置语句'}
+                    <button type="button" onClick={handleCreateCustomWencaiPreset}>
+                      保存当前输入为新语句
                     </button>
-                    <small>这里保存的是你右侧当前填写的全部条件、数量、排序、返回条数和间隔设置。</small>
+                    {selectedPresetId.startsWith('custom-') ? (
+                      <button type="button" className="ghost-button" onClick={handleUpdateCustomWencaiPreset}>
+                        更新当前自定义语句
+                      </button>
+                    ) : null}
+                    <small>默认保存会新增一条，不会覆盖旧语句；只有点击“更新当前自定义语句”才会覆盖当前选中的自定义策略。</small>
                   </div>
                 </div>
 
