@@ -1,0 +1,16 @@
+fastapi>=0.116,<1.0
+uvicorn[standard]>=0.35,<1.0
+httpx>=0.28,<1.0
+
+# FastAPI / schema
+pydantic>=2.8,<3.0
+
+# HTTP / scraping
+requests>=2.31,<3.0
+urllib3>=2.2,<3.0
+beautifulsoup4>=4.12,<5.0
+pywencai>=0.13.1,<1.0
+browser-cookie3>=0.20,<1.0
+
+# Logging / config
+PyYAML>=6.0,<7.0
