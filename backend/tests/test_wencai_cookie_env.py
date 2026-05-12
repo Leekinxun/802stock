@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -11,10 +12,41 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = PROJECT_ROOT / 'backend'
 sys.path.insert(0, str(BACKEND_ROOT))
 
+from app.core.config import _load_dotenv  # noqa: E402
 from app.services.wencai_cookie_env import _upsert_env_value, sync_wencai_cookie_to_env  # noqa: E402
 
 
 class WencaiCookieEnvSyncTest(unittest.TestCase):
+    def test_load_dotenv_prefers_project_wencai_cookie_over_existing_env(self) -> None:
+        original_cookie = os.environ.get('WENCAI_COOKIE')
+        original_other = os.environ.get('SOME_OTHER_KEY')
+
+        try:
+            os.environ['WENCAI_COOKIE'] = 'stale-cookie'
+            os.environ['SOME_OTHER_KEY'] = 'shell-value'
+
+            with TemporaryDirectory() as tmpdir:
+                dotenv_path = Path(tmpdir) / '.env'
+                dotenv_path.write_text(
+                    'WENCAI_COOKIE=fresh-cookie\nSOME_OTHER_KEY=dotenv-value\n',
+                    encoding='utf-8',
+                )
+
+                _load_dotenv(dotenv_path)
+
+            self.assertEqual(os.environ['WENCAI_COOKIE'], 'fresh-cookie')
+            self.assertEqual(os.environ['SOME_OTHER_KEY'], 'shell-value')
+        finally:
+            if original_cookie is None:
+                os.environ.pop('WENCAI_COOKIE', None)
+            else:
+                os.environ['WENCAI_COOKIE'] = original_cookie
+
+            if original_other is None:
+                os.environ.pop('SOME_OTHER_KEY', None)
+            else:
+                os.environ['SOME_OTHER_KEY'] = original_other
+
     def test_upsert_env_value_replaces_existing_cookie(self) -> None:
         updated_text, replaced = _upsert_env_value(
             'FOO=1\nWENCAI_COOKIE=stale\nBAR=2\n',

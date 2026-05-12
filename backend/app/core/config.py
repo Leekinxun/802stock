@@ -4,10 +4,16 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
+DOTENV_OVERRIDE_KEYS = {'WENCAI_COOKIE'}
 
 
 def _load_dotenv(dotenv_path: Path) -> None:
-    """Load simple KEY=VALUE pairs from .env without overriding existing env."""
+    """Load simple KEY=VALUE pairs from .env.
+
+    Most keys keep the traditional "process env wins" behavior, but a small
+    allowlist can intentionally be forced from the project .env so repo-local
+    runtime secrets are preferred over stale shell/session exports.
+    """
     if not dotenv_path.exists():
         return
 
@@ -32,7 +38,10 @@ def _load_dotenv(dotenv_path: Path) -> None:
         if value and value[0] == value[-1] and value[0] in {'"', "'"}:
             value = value[1:-1]
 
-        os.environ.setdefault(key, value)
+        if key in DOTENV_OVERRIDE_KEYS:
+            os.environ[key] = value
+        else:
+            os.environ.setdefault(key, value)
 
 
 def _resolve_project_path(raw_value: str | None, default_path: Path) -> str:
