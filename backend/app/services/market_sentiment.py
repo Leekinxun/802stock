@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+import time
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -11,6 +13,11 @@ from app.services.local_store import get_local_store
 EASTMONEY_MARKET_LIST_URL = 'https://push2.eastmoney.com/api/qt/clist/get'
 EASTMONEY_MARKET_FILTER = 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048'
 REQUEST_TIMEOUT_SECONDS = 4
+REQUEST_PAGE_SIZE = 100
+REQUEST_RETRY_ATTEMPTS = 3
+REQUEST_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+REQUEST_RETRY_BACKOFF_SECONDS = 0.6
+INTER_PAGE_DELAY_SECONDS = 0.12
 DEFAULT_KEEP_DAYS = 5
 
 
@@ -42,32 +49,52 @@ def _iter_quote_rows() -> list[dict[str, Any]]:
     }
 
     page = 1
-    page_size = 3000
+    page_size = REQUEST_PAGE_SIZE
     expected_total = 0
     rows: list[dict[str, Any]] = []
     seen_symbols: set[str] = set()
     max_pages = 200
+    total_pages = 1
 
     while page <= max_pages:
-        response = requests.get(
-            EASTMONEY_MARKET_LIST_URL,
-            params={
-                'pn': page,
-                'pz': page_size,
-                'po': 1,
-                'np': 1,
-                'fltt': 2,
-                'invt': 2,
-                'fid': 'f3',
-                'fs': EASTMONEY_MARKET_FILTER,
-                'fields': 'f12,f14,f3',
-            },
-            headers=headers,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
+        payload: dict[str, Any] | None = None
+        last_error: Exception | None = None
+        for attempt in range(1, REQUEST_RETRY_ATTEMPTS + 1):
+            try:
+                response = requests.get(
+                    EASTMONEY_MARKET_LIST_URL,
+                    params={
+                        'pn': page,
+                        'pz': page_size,
+                        'po': 1,
+                        'np': 1,
+                        'fltt': 2,
+                        'invt': 2,
+                        'fid': 'f3',
+                        'fs': EASTMONEY_MARKET_FILTER,
+                        'fields': 'f12,f14,f3',
+                    },
+                    headers=headers,
+                    timeout=REQUEST_TIMEOUT_SECONDS,
+                )
+                if response.status_code in REQUEST_RETRYABLE_STATUS_CODES:
+                    raise requests.HTTPError(
+                        f'HTTP {response.status_code} for pn={page}',
+                        response=response,
+                    )
 
-        payload = response.json()
+                response.raise_for_status()
+                payload = response.json()
+                break
+            except Exception as exc:
+                last_error = exc
+                if attempt >= REQUEST_RETRY_ATTEMPTS:
+                    raise RuntimeError(f'东方财富行情第 {page} 页抓取失败：{exc}') from exc
+                time.sleep(REQUEST_RETRY_BACKOFF_SECONDS * attempt)
+
+        if payload is None:
+            raise RuntimeError(f'东方财富行情第 {page} 页抓取失败：{last_error}')
+
         data = payload.get('data') or {}
         diff = data.get('diff') or []
         if isinstance(diff, dict):
@@ -77,6 +104,9 @@ def _iter_quote_rows() -> list[dict[str, Any]]:
 
         if page == 1:
             expected_total = int(data.get('total') or len(page_rows))
+            effective_page_size = max(1, len(page_rows))
+            total_pages = max(1, math.ceil(expected_total / effective_page_size))
+            total_pages = min(total_pages, max_pages)
 
         if not page_rows:
             break
@@ -94,7 +124,11 @@ def _iter_quote_rows() -> list[dict[str, Any]]:
 
         if expected_total and len(rows) >= expected_total:
             break
+        if page >= total_pages:
+            break
+
         page += 1
+        time.sleep(INTER_PAGE_DELAY_SECONDS)
 
     return rows
 
