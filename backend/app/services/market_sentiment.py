@@ -45,8 +45,10 @@ def _iter_quote_rows() -> list[dict[str, Any]]:
     page_size = 3000
     expected_total = 0
     rows: list[dict[str, Any]] = []
+    seen_symbols: set[str] = set()
+    max_pages = 200
 
-    while True:
+    while page <= max_pages:
         response = requests.get(
             EASTMONEY_MARKET_LIST_URL,
             params={
@@ -79,8 +81,18 @@ def _iter_quote_rows() -> list[dict[str, Any]]:
         if not page_rows:
             break
 
-        rows.extend(page_rows)
-        if len(rows) >= expected_total or len(page_rows) < page_size:
+        new_rows = 0
+        for item in page_rows:
+            symbol = str(item.get('f12') or '').strip()
+            if symbol and symbol not in seen_symbols:
+                seen_symbols.add(symbol)
+                rows.append(item)
+                new_rows += 1
+
+        if new_rows == 0:
+            break
+
+        if expected_total and len(rows) >= expected_total:
             break
         page += 1
 
