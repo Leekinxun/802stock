@@ -5,6 +5,7 @@ from app.schemas.market import (
     IntradayTrendResponse,
     LonghubangResponse,
     MarketAnomalyResponse,
+    MarketSentimentResponse,
     MarketSnapshotResponse,
     RealtimeQuoteResponse,
     SectorStockResponse,
@@ -23,6 +24,7 @@ from app.services.live_legacy import (
     load_live_realtime_quote,
     load_live_sector_stocks,
 )
+from app.services.market_sentiment import load_market_sentiment
 from app.services.wencai import load_delisted_stocks
 from app.services.wencai import run_wencai_intersection
 from app.services.wencai import run_wencai_query
@@ -44,6 +46,11 @@ def get_anomalies(limit: int = Query(default=8, ge=1, le=30)) -> MarketAnomalyRe
 @router.get('/longhubang', response_model=LonghubangResponse)
 def get_longhubang(limit: int = Query(default=8, ge=1, le=30)) -> LonghubangResponse:
     return LonghubangResponse(items=load_live_longhubang(limit=limit))
+
+
+@router.get('/sentiment', response_model=MarketSentimentResponse)
+def get_market_sentiment(limit: int = Query(default=5, ge=1, le=20)) -> MarketSentimentResponse:
+    return load_market_sentiment(limit=limit)
 
 
 @router.get('/sector-stocks/{sector_code}', response_model=SectorStockResponse)

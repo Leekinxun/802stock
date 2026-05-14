@@ -24,6 +24,8 @@ from app.schemas.market import (  # noqa: E402
     IntradayTrendResponse,
     LonghubangItem,
     MarketAnomalyItem,
+    MarketSentimentPoint,
+    MarketSentimentResponse,
     WencaiIntersectionJobCreateResponse,
     WencaiIntersectionJobResponse,
     RealtimeOrderFlow,
@@ -239,6 +241,42 @@ class ApiRegressionTest(unittest.TestCase):
         self.assertEqual(payload['market_symbol'], 'sh600519')
         self.assertAlmostEqual(payload['price'], 1688.0)
         self.assertEqual(payload['order_flow']['buy_large'], 0.32)
+
+    @patch('app.api.routes.market.load_market_sentiment')
+    def test_market_sentiment_endpoint(self, mock_sentiment) -> None:
+        mock_sentiment.return_value = MarketSentimentResponse(
+            points=[
+                MarketSentimentPoint(
+                    trade_date='2026-04-24',
+                    rise_count=3120,
+                    total_count=5380,
+                    ratio=3120 / 5380,
+                    source='eastmoney',
+                    note=None,
+                ),
+                MarketSentimentPoint(
+                    trade_date='2026-04-25',
+                    rise_count=2840,
+                    total_count=5380,
+                    ratio=2840 / 5380,
+                    source='eastmoney',
+                    note=None,
+                ),
+            ],
+            supported=True,
+            source='eastmoney',
+            latest_trade_date='2026-04-25',
+            note='最近 2 个交易日记录已返回。',
+        )
+
+        response = self.client.get('/api/v1/market/sentiment?limit=5')
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['supported'])
+        self.assertEqual(payload['source'], 'eastmoney')
+        self.assertEqual(payload['latest_trade_date'], '2026-04-25')
+        self.assertEqual(len(payload['points']), 2)
+        self.assertEqual(payload['points'][0]['trade_date'], '2026-04-24')
 
     @patch('app.api.routes.market.load_delisted_stocks')
     def test_delisted_stocks_endpoint(self, mock_delisted) -> None:

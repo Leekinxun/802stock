@@ -1,5 +1,6 @@
 import type {
   DashboardPayload,
+  MarketSentimentResponse,
   MarketSnapshot,
   RealtimeQuoteResponse,
   SignalResponse,
@@ -97,6 +98,27 @@ export async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
   } catch (error) {
     console.warn('market snapshot api unavailable, using fallback', error)
     return fallbackMarketSnapshot
+  }
+}
+
+const fallbackMarketSentiment: MarketSentimentResponse = {
+  points: [],
+  supported: false,
+  source: 'frontend-fallback',
+  latest_trade_date: null,
+  note: '当前后端未返回情绪踩点数据。',
+}
+
+export async function fetchMarketSentiment(): Promise<MarketSentimentResponse> {
+  try {
+    const response = await fetch(`${API_BASE}/market/sentiment?limit=5`)
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return (await response.json()) as MarketSentimentResponse
+  } catch (error) {
+    console.warn('market sentiment api unavailable, using fallback', error)
+    return fallbackMarketSentiment
   }
 }
 

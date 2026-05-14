@@ -92,6 +92,20 @@ class LocalStore:
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_wencai_jobs_status ON wencai_jobs(status);
+
+                CREATE TABLE IF NOT EXISTS market_sentiment_points (
+                    trade_date TEXT PRIMARY KEY,
+                    rise_count INTEGER NOT NULL,
+                    total_count INTEGER NOT NULL,
+                    ratio REAL NOT NULL,
+                    source TEXT NOT NULL,
+                    note TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_market_sentiment_points_trade_date
+                ON market_sentiment_points(trade_date DESC);
                 '''
             )
 
@@ -248,6 +262,96 @@ class LocalStore:
                 (watchlist_id,),
             ).fetchone()
         return self._row_to_signal(row) if row else None
+
+    def upsert_market_sentiment_point(
+        self,
+        *,
+        trade_date: str,
+        rise_count: int,
+        total_count: int,
+        ratio: float,
+        source: str,
+        note: str | None = None,
+        keep_latest: int = 5,
+    ) -> dict[str, Any]:
+        now = self._now()
+        with self._lock, self._connection() as connection:
+            existing = connection.execute(
+                'SELECT trade_date, created_at FROM market_sentiment_points WHERE trade_date = ?',
+                (trade_date,),
+            ).fetchone()
+
+            if existing:
+                connection.execute(
+                    '''
+                    UPDATE market_sentiment_points
+                    SET rise_count = ?, total_count = ?, ratio = ?, source = ?, note = ?, updated_at = ?
+                    WHERE trade_date = ?
+                    ''',
+                    (rise_count, total_count, ratio, source, note, now, trade_date),
+                )
+                created_at = str(existing['created_at'])
+            else:
+                connection.execute(
+                    '''
+                    INSERT INTO market_sentiment_points(
+                        trade_date, rise_count, total_count, ratio, source, note, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ''',
+                    (trade_date, rise_count, total_count, ratio, source, note, now, now),
+                )
+                created_at = now
+
+            if keep_latest > 0:
+                connection.execute(
+                    '''
+                    DELETE FROM market_sentiment_points
+                    WHERE trade_date NOT IN (
+                        SELECT trade_date
+                        FROM market_sentiment_points
+                        ORDER BY trade_date DESC
+                        LIMIT ?
+                    )
+                    ''',
+                    (keep_latest,),
+                )
+
+        return {
+            'trade_date': trade_date,
+            'rise_count': rise_count,
+            'total_count': total_count,
+            'ratio': ratio,
+            'source': source,
+            'note': note,
+            'created_at': created_at,
+            'updated_at': now,
+        }
+
+    def list_market_sentiment_points(self, limit: int = 5) -> list[dict[str, Any]]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                '''
+                SELECT trade_date, rise_count, total_count, ratio, source, note, created_at, updated_at
+                FROM market_sentiment_points
+                ORDER BY trade_date DESC
+                LIMIT ?
+                ''',
+                (limit,),
+            ).fetchall()
+
+        return [
+            {
+                'trade_date': str(row['trade_date']),
+                'rise_count': int(row['rise_count']),
+                'total_count': int(row['total_count']),
+                'ratio': float(row['ratio']),
+                'source': str(row['source']),
+                'note': row['note'],
+                'created_at': str(row['created_at']),
+                'updated_at': str(row['updated_at']),
+            }
+            for row in rows
+        ]
 
     def create_wencai_job(self, job_id: str, payload: dict[str, Any], requested_query_count: int) -> dict[str, Any]:
         now = self._now()

@@ -36,6 +36,23 @@ class LonghubangResponse(BaseModel):
     items: list[LonghubangItem]
 
 
+class MarketSentimentPoint(BaseModel):
+    trade_date: str
+    rise_count: int
+    total_count: int
+    ratio: float = Field(ge=0, le=1)
+    source: str
+    note: str | None = None
+
+
+class MarketSentimentResponse(BaseModel):
+    points: list[MarketSentimentPoint]
+    supported: bool
+    source: str
+    latest_trade_date: str | None = None
+    note: str | None = None
+
+
 class SectorStockItem(BaseModel):
     code: str
     name: str

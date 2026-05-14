@@ -5,6 +5,7 @@ import {
   createWatchlistItem,
   deleteWatchlistItem,
   fetchDashboard,
+  fetchMarketSentiment,
   fetchMarketSnapshot,
   fetchRealtimeQuote,
   fetchSignals,
@@ -15,6 +16,7 @@ import {
 import type {
   DashboardPayload,
   IntradayTrendResponse,
+  MarketSentimentResponse,
   MarketSnapshot,
   RealtimeQuoteResponse,
   SignalItem,
@@ -25,10 +27,11 @@ import type {
   WatchlistItem,
 } from './types'
 
-type AppView = 'overview' | 'watchlist' | 'wencai' | 'todo'
+type AppView = 'overview' | 'sentiment' | 'watchlist' | 'wencai' | 'todo'
 
 const NAV_ITEMS: Array<{ id: AppView; label: string; hint: string }> = [
   { id: 'overview', label: '首页', hint: '热点板块 / 事件流 / 异动 / 龙虎榜' },
+  { id: 'sentiment', label: '情绪踩点', hint: '上涨家数 ÷ 市场总家数 / 最近 5 个交易日' },
   { id: 'watchlist', label: '观察池', hint: '观察股票 / 腾讯快照 / 实时信号' },
   { id: 'wencai', label: '问财', hint: '自然语言筛选 / 预设语句 / 结果表格' },
   { id: 'todo', label: 'TODO', hint: '后续待办 / 阻塞项 / 工作台事项' },
@@ -39,6 +42,11 @@ const VIEW_META: Record<AppView, { badge: string; title: string; subtitle: strin
     badge: 'Market Overview',
     title: '市场首页',
     subtitle: '首页只保留热点板块、事件流、市场异动和龙虎榜，方便快速观察当天市场脉搏。',
+  },
+  sentiment: {
+    badge: 'Emotion Footing',
+    title: '情绪踩点',
+    subtitle: '用上涨家数 ÷ 市场总家数形成 0 到 1 的情绪坐标，持续记录最近 5 个交易日的市场广度变化。',
   },
   watchlist: {
     badge: 'Watchlist & Signals',
@@ -75,6 +83,12 @@ type WatchlistImportCandidate = {
   sector?: string | null
   tags?: string[]
   note?: string | null
+}
+
+type HoveredSentimentPoint = {
+  point: MarketSentimentResponse['points'][number]
+  x: number
+  y: number
 }
 
 const WENCAI_PRESETS: WencaiPreset[] = [
@@ -120,6 +134,13 @@ const WENCAI_DISPLAY_FIELD_RULES: Array<{ label: string; patterns: string[] }> =
 ]
 const WENCAI_CODE_PATTERNS = ['股票代码', 'code']
 const WENCAI_NAME_PATTERNS = ['股票简称', '简称', '股票名称']
+const SENTIMENT_Y_TICKS: Array<{ value: number; label: string; hint?: string; hintColor?: string }> = [
+  { value: 1, label: '1' },
+  { value: 0.75, label: '0.75', hint: '过热线', hintColor: '#ffcad2' },
+  { value: 0.5, label: '0.5' },
+  { value: 0.25, label: '0.25', hint: '冰点线', hintColor: '#cfe0ff' },
+  { value: 0, label: '0' },
+]
 
 function clampWencaiQueryCount(value: number): number {
   if (!Number.isFinite(value)) {
@@ -335,6 +356,90 @@ function buildDisabledTrend(symbol: string): IntradayTrendResponse {
   }
 }
 
+function formatTradeDateLabel(value: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.slice(5) : value
+}
+
+function formatRatioPercent(value: number | null | undefined, digits = 1): string {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return '--'
+  }
+  return `${(value * 100).toFixed(digits)}%`
+}
+
+function getSentimentStage(ratio: number | null | undefined): { label: string; tone: 'cold' | 'warm' | 'hot' | 'neutral' } {
+  if (ratio === null || ratio === undefined || Number.isNaN(ratio)) {
+    return { label: '待确认', tone: 'neutral' }
+  }
+
+  if (ratio < 0.25) {
+    return { label: '冰点', tone: 'cold' }
+  }
+  if (ratio < 0.5) {
+    return { label: '回暖', tone: 'warm' }
+  }
+  if (ratio < 0.75) {
+    return { label: '活跃', tone: 'warm' }
+  }
+  return { label: '过热', tone: 'hot' }
+}
+
+function getSentimentDelta(
+  points: MarketSentimentResponse['points'],
+): { delta: number | null; direction: 'up' | 'down' | 'flat'; previousTradeDate: string | null } {
+  if (points.length < 2) {
+    return { delta: null, direction: 'flat', previousTradeDate: null }
+  }
+
+  const latest = points[points.length - 1]
+  const previous = points[points.length - 2]
+  const delta = latest.ratio - previous.ratio
+  return {
+    delta,
+    direction: delta > 0 ? 'up' : (delta < 0 ? 'down' : 'flat'),
+    previousTradeDate: previous.trade_date,
+  }
+}
+
+function formatSentimentDelta(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return '--'
+  }
+  return `${value >= 0 ? '+' : ''}${(value * 100).toFixed(1)}pct`
+}
+
+function buildSentimentPaths(
+  points: MarketSentimentResponse['points'],
+  width: number,
+  height: number,
+  padding: { top: number; right: number; bottom: number; left: number },
+) {
+  if (!points.length) {
+    return { linePath: '', areaPath: '', coordinates: [] as Array<{ x: number; y: number; ratio: number; tradeDate: string }> }
+  }
+
+  const innerWidth = width - padding.left - padding.right
+  const innerHeight = height - padding.top - padding.bottom
+
+  const coordinates = points.map((point, index) => {
+    const x = points.length === 1
+      ? padding.left + innerWidth / 2
+      : padding.left + (index / Math.max(points.length - 1, 1)) * innerWidth
+    const y = padding.top + (1 - point.ratio) * innerHeight
+    return {
+      x,
+      y,
+      ratio: point.ratio,
+      tradeDate: point.trade_date,
+    }
+  })
+
+  const linePath = coordinates.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ')
+  const areaPath = `${linePath} L ${coordinates[coordinates.length - 1].x} ${height - padding.bottom} L ${coordinates[0].x} ${height - padding.bottom} Z`
+
+  return { linePath, areaPath, coordinates }
+}
+
 function pickWencaiDisplayColumns(columns: string[]): string[] {
   const normalizedEntries = columns.map((column) => ({
     raw: column,
@@ -387,6 +492,11 @@ function App() {
   const [activeView, setActiveView] = useState<AppView>('overview')
   const [data, setData] = useState<DashboardPayload | null>(null)
   const [market, setMarket] = useState<MarketSnapshot | null>(null)
+  const [marketSentiment, setMarketSentiment] = useState<MarketSentimentResponse | null>(null)
+  const [hoveredOverviewSentiment, setHoveredOverviewSentiment] = useState<HoveredSentimentPoint | null>(null)
+  const [hoveredDetailSentiment, setHoveredDetailSentiment] = useState<HoveredSentimentPoint | null>(null)
+  const [lockedOverviewSentiment, setLockedOverviewSentiment] = useState<HoveredSentimentPoint | null>(null)
+  const [lockedDetailSentiment, setLockedDetailSentiment] = useState<HoveredSentimentPoint | null>(null)
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([])
   const [signals, setSignals] = useState<SignalItem[]>([])
   const [selectedWatchSymbol, setSelectedWatchSymbol] = useState<string | null>(null)
@@ -419,14 +529,16 @@ function App() {
   })
 
   async function refreshCoreData() {
-    const [dashboard, snapshot, watchlistResponse, signalResponse] = await Promise.all([
+    const [dashboard, snapshot, sentimentResponse, watchlistResponse, signalResponse] = await Promise.all([
       fetchDashboard(),
       fetchMarketSnapshot(),
+      fetchMarketSentiment(),
       fetchWatchlist(),
       fetchSignals(),
     ])
     setData(dashboard)
     setMarket(snapshot)
+    setMarketSentiment(sentimentResponse)
     setWatchlist(watchlistResponse.items)
     setSignals(signalResponse.items)
   }
@@ -683,6 +795,30 @@ function App() {
     [watchTrend],
   )
 
+  const latestSentimentPoint = useMemo(
+    () => marketSentiment?.points[marketSentiment.points.length - 1] ?? null,
+    [marketSentiment],
+  )
+  const sentimentStage = useMemo(
+    () => getSentimentStage(latestSentimentPoint?.ratio),
+    [latestSentimentPoint],
+  )
+  const sentimentDelta = useMemo(
+    () => getSentimentDelta(marketSentiment?.points ?? []),
+    [marketSentiment],
+  )
+  const activeOverviewSentiment = lockedOverviewSentiment ?? hoveredOverviewSentiment
+  const activeDetailSentiment = lockedDetailSentiment ?? hoveredDetailSentiment
+
+  const sentimentChartGeometry = useMemo(
+    () => buildSentimentPaths(marketSentiment?.points ?? [], 760, 320, { top: 22, right: 18, bottom: 30, left: 46 }),
+    [marketSentiment],
+  )
+  const overviewSentimentGeometry = useMemo(
+    () => buildSentimentPaths(marketSentiment?.points ?? [], 680, 180, { top: 16, right: 12, bottom: 24, left: 36 }),
+    [marketSentiment],
+  )
+
   const wencaiColumns = useMemo(() => {
     if (wencaiResult?.columns?.length) {
       return wencaiResult.columns
@@ -724,7 +860,7 @@ function App() {
     ]
   }, [data])
 
-  if (!data || !market) {
+  if (!data || !market || !marketSentiment) {
     return <div className="page loading">Loading dashboard...</div>
   }
 
@@ -1148,6 +1284,150 @@ function App() {
 
       {activeView === 'overview' ? (
         <>
+          <section className="content-grid one-column">
+            <article className="panel">
+              <div className="panel-header">
+                <div>
+                  <h2>情绪踩点预览</h2>
+                  <span>最近 5 个交易日上涨家数占比</span>
+                </div>
+                <button type="button" className="ghost-button" onClick={() => setActiveView('sentiment')}>
+                  查看完整情绪图
+                </button>
+              </div>
+
+              <div className={`overview-sentiment-layout sentiment-tone-${sentimentStage.tone}`}>
+                <div className={`overview-sentiment-chart-shell sentiment-tone-panel sentiment-tone-panel-${sentimentStage.tone}`}>
+                  {marketSentiment.points.length ? (
+                    <>
+                      <svg
+                        viewBox="0 0 680 180"
+                        className="overview-sentiment-chart"
+                        role="img"
+                        aria-label="首页情绪踩点预览图"
+                        onMouseLeave={() => {
+                          if (!lockedOverviewSentiment) {
+                            setHoveredOverviewSentiment(null)
+                          }
+                        }}
+                      >
+                        <defs>
+                          <linearGradient id="overviewSentimentFill" x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stopColor="rgba(29, 209, 161, 0.28)" />
+                            <stop offset="100%" stopColor="rgba(29, 209, 161, 0.03)" />
+                          </linearGradient>
+                        </defs>
+
+                        {SENTIMENT_Y_TICKS.map((tick) => {
+                          const y = 16 + (1 - tick.value) * (180 - 16 - 24)
+                          return (
+                            <g key={tick.value}>
+                              <line x1="36" y1={y} x2="668" y2={y} stroke="rgba(148, 163, 184, 0.14)" strokeDasharray="4 6" />
+                              <text x="6" y={y + 4} fill="rgba(147, 164, 191, 0.88)" fontSize="11">
+                                {tick.label}
+                              </text>
+                              {tick.hint ? (
+                                <text x="624" y={y - 6} fill={tick.hintColor ?? 'rgba(147, 164, 191, 0.88)'} fontSize="11" fontWeight="600">
+                                  {tick.hint}
+                                </text>
+                              ) : null}
+                            </g>
+                          )
+                        })}
+
+                        <path d={overviewSentimentGeometry.areaPath} fill="url(#overviewSentimentFill)" />
+                        <path d={overviewSentimentGeometry.linePath} fill="none" stroke="#1dd1a1" strokeWidth="3" strokeLinecap="round" />
+
+                        {overviewSentimentGeometry.coordinates.map((point, index) => {
+                          const rawPoint = marketSentiment.points[index]
+                          const active = activeOverviewSentiment?.point.trade_date === rawPoint.trade_date
+                          return (
+                            <g key={point.tradeDate}>
+                              <circle cx={point.x} cy={point.y} r={active ? '5.5' : '4.5'} fill="#07111f" stroke="#1dd1a1" strokeWidth={active ? '3' : '2.5'} />
+                              <circle
+                                cx={point.x}
+                                cy={point.y}
+                                r="12"
+                                fill="transparent"
+                                onMouseEnter={() => setHoveredOverviewSentiment({ point: rawPoint, x: point.x, y: point.y })}
+                                onFocus={() => setHoveredOverviewSentiment({ point: rawPoint, x: point.x, y: point.y })}
+                                onClick={() => {
+                                  setLockedOverviewSentiment((current) =>
+                                    current?.point.trade_date === rawPoint.trade_date
+                                      ? null
+                                      : { point: rawPoint, x: point.x, y: point.y },
+                                  )
+                                  setHoveredOverviewSentiment({ point: rawPoint, x: point.x, y: point.y })
+                                }}
+                              />
+                            </g>
+                          )
+                        })}
+
+                        {activeOverviewSentiment ? (
+                          <g className="sentiment-tooltip" pointerEvents="none">
+                            <rect
+                              x={Math.min(Math.max(activeOverviewSentiment.x - 62, 44), 680 - 132)}
+                              y={Math.max(activeOverviewSentiment.y - 74, 8)}
+                              width="132"
+                              height="54"
+                              rx="10"
+                              fill="rgba(7, 17, 31, 0.96)"
+                              stroke="rgba(148, 163, 184, 0.18)"
+                            />
+                            <text x={Math.min(Math.max(activeOverviewSentiment.x - 52, 54), 680 - 122)} y={Math.max(activeOverviewSentiment.y - 56, 24)} fill="#e5eefb" fontSize="11" fontWeight="600">
+                              {activeOverviewSentiment.point.trade_date}
+                            </text>
+                            <text x={Math.min(Math.max(activeOverviewSentiment.x - 52, 54), 680 - 122)} y={Math.max(activeOverviewSentiment.y - 39, 41)} fill="#d7f9f0" fontSize="11">
+                              比例 {formatRatioPercent(activeOverviewSentiment.point.ratio)}
+                            </text>
+                            <text x={Math.min(Math.max(activeOverviewSentiment.x - 52, 54), 680 - 122)} y={Math.max(activeOverviewSentiment.y - 22, 58)} fill="#93a4bf" fontSize="10.5">
+                              {activeOverviewSentiment.point.rise_count} / {activeOverviewSentiment.point.total_count}
+                            </text>
+                          </g>
+                        ) : null}
+                      </svg>
+
+                      <div className="overview-sentiment-axis">
+                        {marketSentiment.points.map((point) => (
+                          <span key={point.trade_date}>{formatTradeDateLabel(point.trade_date)}</span>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="empty-state">暂无情绪预览数据。</div>
+                  )}
+                </div>
+
+                <div className="overview-sentiment-side">
+                  <div className={`overview-sentiment-stat sentiment-tone-panel sentiment-tone-panel-${sentimentStage.tone}`}>
+                    <span>最新情绪值</span>
+                    <strong>{formatRatioPercent(latestSentimentPoint?.ratio)}</strong>
+                    <div className="sentiment-pill-row">
+                      <span className={`sentiment-stage-pill sentiment-stage-pill-${sentimentStage.tone}`}>{sentimentStage.label}</span>
+                      <span className={`sentiment-delta sentiment-delta-${sentimentDelta.direction}`}>
+                        {sentimentDelta.direction === 'up' ? '↑' : (sentimentDelta.direction === 'down' ? '↓' : '→')} {formatSentimentDelta(sentimentDelta.delta)}
+                      </span>
+                    </div>
+                    <small>{latestSentimentPoint?.trade_date ?? '--'}</small>
+                  </div>
+                  <div className="overview-sentiment-stat">
+                    <span>上涨 / 总家数</span>
+                    <strong>
+                      {latestSentimentPoint ? `${latestSentimentPoint.rise_count} / ${latestSentimentPoint.total_count}` : '--'}
+                    </strong>
+                    <small>
+                      {sentimentDelta.previousTradeDate ? `较 ${sentimentDelta.previousTradeDate} ${formatSentimentDelta(sentimentDelta.delta)}` : marketSentiment.source}
+                    </small>
+                  </div>
+                  {marketSentiment.note ? (
+                    <small className="overview-sentiment-note">{marketSentiment.note}</small>
+                  ) : null}
+                </div>
+              </div>
+            </article>
+          </section>
+
           <section className="content-grid two-columns">
             <article className="panel">
               <div className="panel-header">
@@ -1231,6 +1511,183 @@ function App() {
                   </div>
                 ))}
               </div>
+            </article>
+          </section>
+        </>
+      ) : null}
+
+      {activeView === 'sentiment' ? (
+        <>
+          <section className="content-grid one-column">
+            <article className="panel">
+              <div className="panel-header">
+                <h2>情绪踩点坐标图</h2>
+                <span>{marketSentiment.latest_trade_date ? `截至 ${marketSentiment.latest_trade_date}` : '最近 5 个交易日'}</span>
+              </div>
+
+              <div className="trend-summary sentiment-summary">
+                <div className={`sentiment-tone-panel sentiment-tone-panel-${sentimentStage.tone}`}>
+                  <span>最新情绪值</span>
+                  <strong>{formatRatioPercent(latestSentimentPoint?.ratio)}</strong>
+                  <div className="sentiment-pill-row">
+                    <span className={`sentiment-stage-pill sentiment-stage-pill-${sentimentStage.tone}`}>{sentimentStage.label}</span>
+                    <span className={`sentiment-delta sentiment-delta-${sentimentDelta.direction}`}>
+                      {sentimentDelta.direction === 'up' ? '↑' : (sentimentDelta.direction === 'down' ? '↓' : '→')} {formatSentimentDelta(sentimentDelta.delta)}
+                    </span>
+                  </div>
+                  <small>上涨家数 ÷ 市场总家数</small>
+                </div>
+                <div>
+                  <span>最新上涨家数</span>
+                  <strong>{latestSentimentPoint?.rise_count ?? '--'}</strong>
+                  <small>{latestSentimentPoint?.trade_date ?? '--'}</small>
+                </div>
+                <div>
+                  <span>市场总家数</span>
+                  <strong>{latestSentimentPoint?.total_count ?? '--'}</strong>
+                  <small>{marketSentiment.source}</small>
+                </div>
+              </div>
+
+              {marketSentiment.points.length ? (
+                <div className={`sentiment-chart-shell sentiment-tone-panel sentiment-tone-panel-${sentimentStage.tone}`}>
+                  <svg
+                    viewBox="0 0 760 320"
+                    className="sentiment-chart"
+                    role="img"
+                    aria-label="最近5个交易日情绪踩点图"
+                    onMouseLeave={() => {
+                      if (!lockedDetailSentiment) {
+                        setHoveredDetailSentiment(null)
+                      }
+                    }}
+                  >
+                    <defs>
+                      <linearGradient id="sentimentFill" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0%" stopColor="rgba(29, 209, 161, 0.34)" />
+                        <stop offset="100%" stopColor="rgba(29, 209, 161, 0.03)" />
+                      </linearGradient>
+                    </defs>
+
+                    {SENTIMENT_Y_TICKS.map((tick) => {
+                      const y = 22 + (1 - tick.value) * (320 - 22 - 30)
+                      return (
+                        <g key={tick.value}>
+                          <line x1="46" y1={y} x2="742" y2={y} stroke="rgba(148, 163, 184, 0.16)" strokeDasharray="4 6" />
+                          <text x="8" y={y + 4} fill="rgba(147, 164, 191, 0.92)" fontSize="12">
+                            {tick.label}
+                          </text>
+                          {tick.hint ? (
+                            <text x="682" y={y - 8} fill={tick.hintColor ?? 'rgba(147, 164, 191, 0.92)'} fontSize="12" fontWeight="600">
+                              {tick.hint} ({tick.label})
+                            </text>
+                          ) : null}
+                        </g>
+                      )
+                    })}
+
+                    <path d={sentimentChartGeometry.areaPath} fill="url(#sentimentFill)" />
+                    <path d={sentimentChartGeometry.linePath} fill="none" stroke="#1dd1a1" strokeWidth="3" strokeLinecap="round" />
+
+                    {sentimentChartGeometry.coordinates.map((point, index) => {
+                      const rawPoint = marketSentiment.points[index]
+                      const active = activeDetailSentiment?.point.trade_date === rawPoint.trade_date
+                      return (
+                        <g key={point.tradeDate}>
+                          <circle cx={point.x} cy={point.y} r={active ? '7' : '5.5'} fill="#07111f" stroke="#1dd1a1" strokeWidth="3" />
+                          <text x={point.x} y={point.y - 12} textAnchor="middle" fill="#d7f9f0" fontSize="12">
+                            {formatRatioPercent(point.ratio)}
+                          </text>
+                          <circle
+                            cx={point.x}
+                            cy={point.y}
+                            r="15"
+                            fill="transparent"
+                            onMouseEnter={() => setHoveredDetailSentiment({ point: rawPoint, x: point.x, y: point.y })}
+                            onFocus={() => setHoveredDetailSentiment({ point: rawPoint, x: point.x, y: point.y })}
+                            onClick={() => {
+                              setLockedDetailSentiment((current) =>
+                                current?.point.trade_date === rawPoint.trade_date
+                                  ? null
+                                  : { point: rawPoint, x: point.x, y: point.y },
+                              )
+                              setHoveredDetailSentiment({ point: rawPoint, x: point.x, y: point.y })
+                            }}
+                          />
+                        </g>
+                      )
+                    })}
+
+                    {activeDetailSentiment ? (
+                      <g className="sentiment-tooltip" pointerEvents="none">
+                        <rect
+                          x={Math.min(Math.max(activeDetailSentiment.x - 74, 50), 760 - 156)}
+                          y={Math.max(activeDetailSentiment.y - 92, 10)}
+                          width="156"
+                          height="70"
+                          rx="12"
+                          fill="rgba(7, 17, 31, 0.96)"
+                          stroke="rgba(148, 163, 184, 0.2)"
+                        />
+                        <text x={Math.min(Math.max(activeDetailSentiment.x - 60, 64), 760 - 142)} y={Math.max(activeDetailSentiment.y - 71, 26)} fill="#e5eefb" fontSize="12" fontWeight="600">
+                          {activeDetailSentiment.point.trade_date}
+                        </text>
+                        <text x={Math.min(Math.max(activeDetailSentiment.x - 60, 64), 760 - 142)} y={Math.max(activeDetailSentiment.y - 50, 47)} fill="#d7f9f0" fontSize="11.5">
+                          比例 {formatRatioPercent(activeDetailSentiment.point.ratio)}
+                        </text>
+                        <text x={Math.min(Math.max(activeDetailSentiment.x - 60, 64), 760 - 142)} y={Math.max(activeDetailSentiment.y - 31, 66)} fill="#93a4bf" fontSize="11">
+                          上涨家数 {activeDetailSentiment.point.rise_count}
+                        </text>
+                        <text x={Math.min(Math.max(activeDetailSentiment.x - 60, 64), 760 - 142)} y={Math.max(activeDetailSentiment.y - 14, 83)} fill="#93a4bf" fontSize="11">
+                          总家数 {activeDetailSentiment.point.total_count}
+                        </text>
+                      </g>
+                    ) : null}
+                  </svg>
+
+                  <div className="sentiment-axis">
+                    {marketSentiment.points.map((point) => (
+                      <span key={point.trade_date}>{formatTradeDateLabel(point.trade_date)}</span>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="empty-state">当前还没有可展示的情绪踩点数据。</div>
+              )}
+
+              {marketSentiment.note ? (
+                <div className="empty-state quote-note">{marketSentiment.note}</div>
+              ) : null}
+            </article>
+          </section>
+
+          <section className="content-grid one-column">
+            <article className="panel">
+              <div className="panel-header">
+                <h2>最近记录</h2>
+                <span>{marketSentiment.points.length} / 5 个交易日</span>
+              </div>
+
+              {marketSentiment.points.length ? (
+                <div className="sentiment-point-list">
+                  {marketSentiment.points.map((point) => (
+                    <div key={point.trade_date} className={`sentiment-point-card sentiment-point-card-${getSentimentStage(point.ratio).tone}`}>
+                      <div>
+                        <span>{point.trade_date}</span>
+                        <strong>{formatRatioPercent(point.ratio)}</strong>
+                      </div>
+                      <div className="sentiment-pill-row">
+                        <span className={`sentiment-stage-pill sentiment-stage-pill-${getSentimentStage(point.ratio).tone}`}>
+                          {getSentimentStage(point.ratio).label}
+                        </span>
+                      </div>
+                      <small>{point.rise_count} / {point.total_count}</small>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">待后端首次抓取后，这里会保留最近 5 个交易日的情绪值。</div>
+              )}
             </article>
           </section>
         </>

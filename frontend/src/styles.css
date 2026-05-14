@@ -101,7 +101,7 @@ ul {
 }
 
 .view-tabs {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   margin-bottom: 22px;
 }
 
@@ -717,6 +717,214 @@ ul {
   font-size: 0.84rem;
 }
 
+.sentiment-summary {
+  margin-bottom: 18px;
+}
+
+.sentiment-chart-shell {
+  border-radius: 20px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: linear-gradient(180deg, rgba(11, 20, 37, 0.9), rgba(8, 14, 27, 0.9));
+  padding: 14px;
+}
+
+.sentiment-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.sentiment-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  padding-left: 46px;
+}
+
+.sentiment-point-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.sentiment-point-card {
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(11, 20, 37, 0.76);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  display: grid;
+  gap: 8px;
+}
+
+.sentiment-point-card div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.sentiment-point-card span,
+.sentiment-point-card small {
+  color: var(--muted);
+}
+
+.sentiment-point-card strong {
+  color: var(--text);
+  font-size: 1.12rem;
+}
+
+.sentiment-tone-panel {
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.sentiment-tone-panel-cold {
+  border-color: rgba(79, 156, 255, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(79, 156, 255, 0.08);
+}
+
+.sentiment-tone-panel-warm {
+  border-color: rgba(246, 185, 59, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(246, 185, 59, 0.05);
+}
+
+.sentiment-tone-panel-hot {
+  border-color: rgba(255, 107, 129, 0.26);
+  box-shadow: inset 0 0 0 1px rgba(255, 107, 129, 0.07);
+}
+
+.sentiment-tone-panel-neutral {
+  border-color: rgba(148, 163, 184, 0.16);
+}
+
+.overview-sentiment-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(220px, 0.7fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.overview-sentiment-chart-shell {
+  border-radius: 20px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: linear-gradient(180deg, rgba(11, 20, 37, 0.9), rgba(8, 14, 27, 0.9));
+  padding: 12px;
+}
+
+.overview-sentiment-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.overview-sentiment-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  padding-left: 36px;
+}
+
+.overview-sentiment-side {
+  display: grid;
+  gap: 12px;
+}
+
+.overview-sentiment-stat {
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(11, 20, 37, 0.76);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  display: grid;
+  gap: 8px;
+}
+
+.overview-sentiment-stat span,
+.overview-sentiment-stat small,
+.overview-sentiment-note {
+  color: var(--muted);
+}
+
+.overview-sentiment-stat strong {
+  font-size: 1.14rem;
+}
+
+.overview-sentiment-note {
+  line-height: 1.6;
+}
+
+.sentiment-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.sentiment-stage-pill,
+.sentiment-delta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+}
+
+.sentiment-tooltip text {
+  user-select: none;
+}
+
+.sentiment-stage-pill-cold {
+  background: rgba(79, 156, 255, 0.16);
+  color: #cfe0ff;
+}
+
+.sentiment-stage-pill-warm {
+  background: rgba(246, 185, 59, 0.16);
+  color: #ffe1a3;
+}
+
+.sentiment-stage-pill-hot {
+  background: rgba(255, 107, 129, 0.16);
+  color: #ffcad2;
+}
+
+.sentiment-stage-pill-neutral {
+  background: rgba(148, 163, 184, 0.14);
+  color: #d8e2f0;
+}
+
+.sentiment-delta-up {
+  background: rgba(29, 209, 161, 0.16);
+  color: #b5ffe7;
+}
+
+.sentiment-delta-down {
+  background: rgba(255, 107, 129, 0.16);
+  color: #ffcad2;
+}
+
+.sentiment-delta-flat {
+  background: rgba(148, 163, 184, 0.14);
+  color: #d8e2f0;
+}
+
+.sentiment-point-card-cold {
+  border-color: rgba(79, 156, 255, 0.24);
+}
+
+.sentiment-point-card-warm {
+  border-color: rgba(246, 185, 59, 0.2);
+}
+
+.sentiment-point-card-hot {
+  border-color: rgba(255, 107, 129, 0.22);
+}
+
 .watch-note {
   margin-top: 16px;
   padding: 14px 16px;
@@ -912,6 +1120,10 @@ ul {
 
   .quote-grid,
   .order-flow-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-sentiment-layout {
     grid-template-columns: 1fr;
   }
 

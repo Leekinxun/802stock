@@ -78,6 +78,23 @@ export type MarketSnapshot = {
   longhubang: LonghubangItem[]
 }
 
+export type MarketSentimentPoint = {
+  trade_date: string
+  rise_count: number
+  total_count: number
+  ratio: number
+  source: string
+  note?: string | null
+}
+
+export type MarketSentimentResponse = {
+  points: MarketSentimentPoint[]
+  supported: boolean
+  source: string
+  latest_trade_date?: string | null
+  note?: string | null
+}
+
 export type SectorStockItem = {
   code: string
   name: string
