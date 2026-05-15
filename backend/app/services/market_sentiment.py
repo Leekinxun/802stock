@@ -43,7 +43,7 @@ def _resolve_effective_trade_date(now: datetime | None = None) -> date:
 
 def _iter_quote_rows() -> list[dict[str, Any]]:
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36', #'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
         'Accept': 'application/json,text/plain,*/*',
         'Referer': 'https://quote.eastmoney.com/center/gridlist.html',
     }
